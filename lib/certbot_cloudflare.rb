@@ -27,39 +27,44 @@ class CertbotCloudflare
   private
 
   def dispatch(operation)
-    case operation
-    when 'renew' then fetch_and_upload
-    when 'upload' then upload_existing
-    when 'list' then list_certs_in_1password
-    when 'revoke' then revoke_certs
-    else
-      puts "Unknown operation: #{operation}"
-      puts 'Usage: ruby certbot_cloudflare.rb [renew|upload|list|revoke]'
-      exit 1
-    end
+    actions = {
+      'renew' => -> { fetch_and_upload },
+      'upload' => -> { upload_existing },
+      'list' => -> { list_certs_in_1password },
+      'revoke' => -> { revoke_certs },
+      'force-renew' => -> { fetch_and_upload(force: true) },
+    }
+    action = actions[operation]
+    action ? action.call : invalid_operation(operation)
   end
 
-  def fetch_and_upload
-    cert_data = fetch_or_renew
+  def invalid_operation(operation)
+    puts "Unknown operation: #{operation}"
+    puts 'Usage: ruby certbot_cloudflare.rb [renew|upload|list|revoke|force-renew]'
+    exit 1
+  end
+
+  def fetch_and_upload(force: false)
+    cert_data = fetch_or_renew(force: force)
     puts '=== Uploading to 1Password ==='
     Op.new.upload_cert(domain, cert_data)
     puts '=== Done ==='
   end
 
-  def fetch_or_renew
+  def fetch_or_renew(force: false)
     if File.exist?(CertStore.new.cert_path(domain, 'fullchain'))
       cert_data = CertStore.new.load(domain)
-      fetch_if_needed(domain, cert_data)
+      fetch_if_needed(domain, cert_data, force: force)
     else
       puts "=== Fetching wildcard certificate for *.#{domain} ==="
-      Certbot.new.fetch_wildcard
+      Certbot.new.fetch_wildcard(force: force)
     end
   end
 
-  def fetch_if_needed(domain, cert_data)
-    if CertStore.new.needs_renewal?(domain)
+  def fetch_if_needed(domain, cert_data, force: false)
+    if CertStore.new.needs_renewal?(domain) || force
       puts "=== Fetching wildcard certificate for *.#{domain} ==="
-      Certbot.new.fetch_wildcard
+      Certbot.new.fetch_wildcard(force: force)
     else
       days = CertStore.new.days_until_expiry(domain)
       puts "=== Certificate valid for #{days} more days, skipping renewal ==="
@@ -83,6 +88,14 @@ class CertbotCloudflare
   def revoke_certs
     puts "=== Revoking certificates for *.#{domain} ==="
     Certbot.new.revoke_wildcard
+    puts '=== Done ==='
+  end
+
+  def force_renew
+    puts "=== Forcing wildcard certificate renewal for *.#{domain} ==="
+    cert_data = Certbot.new.fetch_wildcard
+    puts '=== Uploading to 1Password ==='
+    Op.new.upload_cert(domain, cert_data)
     puts '=== Done ==='
   end
 end

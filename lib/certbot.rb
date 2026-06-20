@@ -12,13 +12,14 @@ class Certbot
     Config.email
   end
 
-  def cli
+  def cli(force: false)
     static = %w[
       certbot certonly --non-interactive --agree-tos
       --dns-cloudflare --dns-cloudflare-credentials /tmp/cf.ini
       --dns-cloudflare-propagation-seconds 60
       --work-dir /tmp/certbot-work --logs-dir /tmp/certbot-logs
     ]
+    static << '--force-renewal' if force
     dynamic = ["--email #{email}", "--domain *.#{domain}", "--domain #{domain}"]
     (static + dynamic).join(" \\\n")
   end
@@ -31,13 +32,13 @@ class Certbot
     File.chmod(0o600, '/tmp/cf.ini')
   end
 
-  def fetch_wildcard
+  def fetch_wildcard(force: false)
     write_cf_ini
 
     cmd = if Config.agree_tos?
-            cli
+            cli(force: force)
           else
-            cli.sub("--agree-tos --email #{email} \\n", '')
+            cli(force: force).sub("--agree-tos --email #{email} \\n", '')
           end
 
     puts "Running: #{cmd.gsub('\\n', ' ')}"
